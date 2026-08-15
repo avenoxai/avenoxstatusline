@@ -72,10 +72,22 @@ CWD=${CWD:-.}; SID=${SID:-nosess}
 # ---- git + project badge (cached ~5s by session_id) ----
 CACHE="${TMPDIR:-/tmp}/cc-sl-${SID//[^A-Za-z0-9]/_}.cache"
 now=$(date +%s 2>/dev/null || echo 0)
-# stat -f is BSD/macOS, stat -c is GNU/Linux — try both before giving up.
-mt=$(stat -f %m "$CACHE" 2>/dev/null || stat -c %Y "$CACHE" 2>/dev/null || echo 0)
+# GNU FIRST: on coreutils `-f` is --file-system, not a format string, so
+# `stat -f %m` SUCCEEDS on Linux and prints multi-line filesystem info — the
+# `||` never fires and the arithmetic below dies. BSD stat rejects `-c`
+# outright, so GNU-then-BSD is the only order that fails over correctly.
+mt=$(stat -c %Y "$CACHE" 2>/dev/null || stat -f %m "$CACHE" 2>/dev/null || echo 0)
+mt=$(int "$mt" 0)
 if [ -s "$CACHE" ] && [ $((now - mt)) -lt 5 ]; then
-  IFS=$'\t' read -r BRANCH DIRTY BADGE SYNC APPROV < "$CACHE"
+  # One field per LINE, for the same reason the stdin parse above does it:
+  # tab is IFS whitespace, so `IFS=$'\t' read` collapses runs of tabs and every
+  # field after an empty one shifts left. BADGE and SYNC are empty in the
+  # common case, which slid APPROV into the BADGE slot — the approval count
+  # rendered as the project badge.
+  {
+    IFS= read -r BRANCH; IFS= read -r DIRTY; IFS= read -r BADGE
+    IFS= read -r SYNC;   IFS= read -r APPROV
+  } < "$CACHE"
 else
   BRANCH=$(git -C "$CWD" symbolic-ref --short HEAD 2>/dev/null \
            || git -C "$CWD" rev-parse --short HEAD 2>/dev/null || echo "")
@@ -104,7 +116,7 @@ else
     fi
   fi
   APPROV=$(int "$APPROV" 0)
-  printf '%s\t%s\t%s\t%s\t%s' "$BRANCH" "$DIRTY" "$BADGE" "$SYNC" "$APPROV" > "$CACHE" 2>/dev/null
+  printf '%s\n%s\n%s\n%s\n%s\n' "$BRANCH" "$DIRTY" "$BADGE" "$SYNC" "$APPROV" > "$CACHE" 2>/dev/null
 fi
 APPROV=$(int "$APPROV" 0)
 [ ${#BRANCH} -gt 24 ] && BRANCH="${BRANCH:0:23}…"
