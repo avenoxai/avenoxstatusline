@@ -81,7 +81,13 @@ now=$(date +%s 2>/dev/null || echo 0)
 mt=$(stat -c %Y "$CACHE" 2>/dev/null || stat -f %m "$CACHE" 2>/dev/null || echo 0)
 case "$mt" in ''|*[!0-9]*) mt=0;; esac
 if [ -s "$CACHE" ] && [ $((now - mt)) -lt 5 ]; then
-  IFS=$'\t' read -r BRANCH DIRTY BADGE SYNC APPROV < "$CACHE"
+  # Exactly the trap the jq read above documents, and the cache read fell into
+  # it too: tab is IFS *whitespace*, so `IFS=$'\t' read` collapses runs of tabs
+  # and drops empty fields. A clean repo caches "branch\t\t\t\t0", which reads
+  # back as DIRTY=0 — a phantom dirty marker on every cached render — and shifts
+  # badge/sync/approvals one field left. One field per line, like the jq read.
+  { IFS= read -r BRANCH; IFS= read -r DIRTY; IFS= read -r BADGE
+    IFS= read -r SYNC;   IFS= read -r APPROV; } < "$CACHE"
 else
   BRANCH=$(git -C "$CWD" symbolic-ref --short HEAD 2>/dev/null \
            || git -C "$CWD" rev-parse --short HEAD 2>/dev/null || echo "")
@@ -110,7 +116,7 @@ else
     fi
   fi
   APPROV=$(int "$APPROV" 0)
-  printf '%s\t%s\t%s\t%s\t%s' "$BRANCH" "$DIRTY" "$BADGE" "$SYNC" "$APPROV" > "$CACHE" 2>/dev/null
+  printf '%s\n%s\n%s\n%s\n%s\n' "$BRANCH" "$DIRTY" "$BADGE" "$SYNC" "$APPROV" > "$CACHE" 2>/dev/null
 fi
 APPROV=$(int "$APPROV" 0)
 [ ${#BRANCH} -gt 24 ] && BRANCH="${BRANCH:0:23}…"
