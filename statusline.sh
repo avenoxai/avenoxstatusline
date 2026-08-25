@@ -72,8 +72,14 @@ CWD=${CWD:-.}; SID=${SID:-nosess}
 # ---- git + project badge (cached ~5s by session_id) ----
 CACHE="${TMPDIR:-/tmp}/cc-sl-${SID//[^A-Za-z0-9]/_}.cache"
 now=$(date +%s 2>/dev/null || echo 0)
-# stat -f is BSD/macOS, stat -c is GNU/Linux — try both before giving up.
-mt=$(stat -f %m "$CACHE" 2>/dev/null || stat -c %Y "$CACHE" 2>/dev/null || echo 0)
+# stat -c is GNU/Linux, stat -f is BSD/macOS — but probe GNU FIRST. On GNU
+# coreutils `-f` means --file-system, so `stat -f %m` prints a filesystem block
+# to stdout and only *then* exits 1: the `||` fallback appends the real mtime
+# after that junk and $mt ends up multi-line, so `$((now - mt))` fails on every
+# render and the cache never hits. BSD stat rejects `-c` silently, so this order
+# is safe on both. Belt and braces: force $mt to digits or 0.
+mt=$(stat -c %Y "$CACHE" 2>/dev/null || stat -f %m "$CACHE" 2>/dev/null || echo 0)
+case "$mt" in ''|*[!0-9]*) mt=0;; esac
 if [ -s "$CACHE" ] && [ $((now - mt)) -lt 5 ]; then
   IFS=$'\t' read -r BRANCH DIRTY BADGE SYNC APPROV < "$CACHE"
 else
