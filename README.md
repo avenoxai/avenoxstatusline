@@ -98,14 +98,29 @@ Tested on macOS and Linux.
 
 ## What's on the line
 
-**Line 1** — pet, model, reasoning effort, extended thinking, and your 5-hour /
-7-day rate-limit usage.
+**Line 1** — pet, model, reasoning effort, extended thinking, your 5-hour /
+7-day rate-limit usage, and (if CodexBar is around) the same pair for Codex.
 
 **Line 2** — context bar (green → yellow → red), context %, branch (`*` = dirty
 tracked files), worktree, project badge, pending approvals, sync state.
 
 Every segment hides itself when it has nothing to say. In a plain directory
 with no git, line 2 is just the context bar.
+
+### Codex usage next to Claude's
+
+If the CodexBar tray app is installed and has polled at least
+once, line 1 grows a `cx5h`/`cx7d` pair right after Claude's `5h`/`7d`, e.g.
+`5h 41% · 7d 63% · cx5h 12% · cx7d 80%`. It reads CodexBar's local
+`snapshots.json` (no network call) and renders exactly like Claude's own pair. CodexBar is entirely optional: no snapshot file means
+no Codex fields and no error.
+
+Gotcha: when CodexBar's poll gets rate-limited, it writes *both* windows as
+100% even though the weekly window may be nowhere near spent — `cx7d` is
+taken from the newest snapshot that isn't in that state instead.
+
+If the newest snapshot is older than 15 minutes, both values get a trailing
+`?` so a closed CodexBar never looks quietly current.
 
 ---
 

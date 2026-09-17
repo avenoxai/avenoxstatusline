@@ -149,12 +149,69 @@ bw=8; fill=$((CTX*bw/100)); [ $fill -gt $bw ] && fill=$bw; [ $fill -lt 0 ] && fi
 bar=""; i=0; while [ $i -lt $fill ]; do bar="${bar}▓"; i=$((i+1)); done
 i=0; while [ $i -lt $empty ]; do bar="${bar}░"; i=$((i+1)); done
 
+# ---- Codex usage (cached ~30s, machine-wide) ----
+# CodexBar (the tray app that watches Codex/Claude usage) polls Codex CLI's
+# own quota and writes snapshots.json; this is a local file read, not a network
+# call, so it's safe at the status line's refresh rate. CodexBar is optional:
+# no snapshot file means no Codex fields, no error. Cache key is machine-wide,
+# not per-session_id: the quota is one number for the whole machine.
+CX=-1; CXW=-1; CXAGE=-1
+CXCACHE="${TMPDIR:-/tmp}/cc-sl-codex.cache"
+cmt=$(stat -f %m "$CXCACHE" 2>/dev/null || stat -c %Y "$CXCACHE" 2>/dev/null || echo 0)
+if [ -s "$CXCACHE" ] && [ $((now - cmt)) -lt 30 ]; then
+  IFS=$'\t' read -r CX CXW CXAGE < "$CXCACHE"
+else
+  CXSNAP=""
+  for cand in "$HOME/Library/Application Support/CodexBar/codex-accounts/snapshots.json" \
+              "${APPDATA:+$APPDATA/CodexBar/codex-accounts/snapshots.json}" \
+              "$HOME/.config/CodexBar/codex-accounts/snapshots.json"; do
+    [ -n "$cand" ] && [ -r "$cand" ] && { CXSNAP="$cand"; break; }
+  done
+  if [ -n "$CXSNAP" ]; then
+    # limitReached is a CodexBar error sentinel: BOTH windows read exactly 100
+    # the instant a poll gets rate-limited, even though the weekly window is
+    # nowhere near spent. Session (primary) really is exhausted then, so keep
+    # that reading — but weekly needs the newest non-sentinel poll, or every
+    # exhausted 5h window falsely reports a dead week too.
+    # jq on Windows emits CRLF, and a trailing \r left in CXT zeroes it out
+    # in int() (\r is not in the [0-9-] allow-list) — strip it before reading.
+    read -r CX CXW CXT < <(jq -r '
+      (.snapshots // {}) | to_entries | map(.value)
+      | map(select(.updatedAt != null)
+            | . + {t: (.updatedAt | sub("[.][0-9]+Z$";"Z") | fromdateiso8601)})
+      | sort_by(.t) as $s
+      | if ($s|length) == 0 then "-1\t-1\t0"
+        else
+          ($s[-1]) as $latest
+          | ([$s[] | select(.limitReached != true)]) as $ok
+          | (if ($ok|length) > 0 then $ok[-1] else $latest end) as $w
+          | [ ($latest.primaryWindow.usedPercent // -1 | floor),
+              ($w.secondaryWindow.usedPercent // -1 | floor),
+              $latest.t
+            ] | @tsv
+        end
+    ' "$CXSNAP" 2>/dev/null | tr -d '\r')
+    CX=$(int "$CX" -1); CXW=$(int "$CXW" -1); CXT=$(int "$CXT" 0)
+    CXAGE=$(( (now - CXT) / 60 ))
+  fi
+  printf '%s\t%s\t%s' "$CX" "$CXW" "$CXAGE" > "$CXCACHE" 2>/dev/null
+fi
+CX=$(int "$CX" -1); CXW=$(int "$CXW" -1); CXAGE=$(int "$CXAGE" -1)
+
 # ---- assemble line 1 ----
 L1="${PETC}${PET}${R}  ${B}${MODEL}${R}"
 [ -n "$EFFORT" ]   && L1="${L1} ${D}·${R} ${EFFORT}"
 [ "$THINK" = true ] && L1="${L1} ${D}·${R} ${MG}think${R}"
 [ "$FIVE"  -ge 0 ] && L1="${L1}   ${D}5h${R} ${FIVE}%"
 [ "$SEVEN" -ge 0 ] && L1="${L1} ${D}·${R} ${D}7d${R} ${SEVEN}%"
+# Same plain rendering as the Claude pair. Stale Codex data must not look
+# quietly current, so anything older than 15 minutes gets a "?" — exactly
+# what a closed CodexBar gives.
+if [ "$CX" -ge 0 ]; then
+  CXQ=""; [ "$CXAGE" -gt 15 ] && CXQ="?"
+  L1="${L1} ${D}·${R} ${D}cx5h${R} ${CX}%${CXQ}"
+  [ "$CXW" -ge 0 ] && L1="${L1} ${D}·${R} ${D}cx7d${R} ${CXW}%${CXQ}"
+fi
 
 # ---- assemble line 2 ----
 L2="${CC}${bar}${R} ${CC}${CTX}%${R}"
