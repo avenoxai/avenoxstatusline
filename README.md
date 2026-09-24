@@ -92,7 +92,8 @@ Then add to `~/.claude/settings.json`:
 ```
 
 Requirements: `bash` (3.2+, so stock macOS works), `git`, `jq`.
-Tested on macOS and Linux.
+Tested on macOS and Linux. On Windows it runs under Git Bash (which Claude Code
+already requires) with `jq` from `winget install jqlang.jq`.
 
 ---
 

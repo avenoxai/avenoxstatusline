@@ -20,8 +20,12 @@
 #
 # License: MIT
 
-# Prepend common package-manager bins only if they exist (macOS/Linux friendly).
-for d in /opt/homebrew/bin /usr/local/bin; do
+# Prepend common package-manager bins only if they exist.
+# Windows (Git Bash): Claude Code's PATH is captured at launch, so a jq installed
+# with winget afterwards stays invisible until restart; look in winget's package
+# folder directly. The glob stays literal and fails -d on macOS/Linux.
+for d in /opt/homebrew/bin /usr/local/bin \
+         "$HOME"/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_*; do
   [ -d "$d" ] && case ":$PATH:" in *":$d:"*) ;; *) PATH="$d:$PATH";; esac
 done
 export PATH
@@ -60,7 +64,11 @@ CY="${ESC}[36m"; GR="${ESC}[32m"; YE="${ESC}[33m"; RD="${ESC}[31m"; MG="${ESC}[3
       (.workspace.git_worktree // ""),
       (.workspace.current_dir // .cwd // "."),
       (.session_id // "nosess")
-    ] | .[] | tostring | gsub("[\r\n\t]"; " ")' 2>/dev/null
+    ] | .[] | tostring | gsub("[\r\n\t]"; " ")' 2>/dev/null | tr -d '\r'
+  # ^ native jq.exe on Windows writes CRLF. Without this every field keeps a
+  #   trailing \r: numbers fail int() and render as 0%, and empty fields
+  #   (git_worktree) turn non-empty. The gsub above can't help — it runs
+  #   before jq's own line ending is added.
 )
 
 # ---- sanitize numerics (never let arithmetic crash the bar) ----
