@@ -31,6 +31,9 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
+# Windows' native jq.exe writes CRLF; strip the CR so `read` and int() get clean fields.
+jq() { command jq "$@" | tr -d '\r'; }
+
 input=$(cat)
 
 # ---- colors (literal ESC so we can print with %s) ----
@@ -72,8 +75,10 @@ CWD=${CWD:-.}; SID=${SID:-nosess}
 # ---- git + project badge (cached ~5s by session_id) ----
 CACHE="${TMPDIR:-/tmp}/cc-sl-${SID//[^A-Za-z0-9]/_}.cache"
 now=$(date +%s 2>/dev/null || echo 0)
-# stat -f is BSD/macOS, stat -c is GNU/Linux — try both before giving up.
-mt=$(stat -f %m "$CACHE" 2>/dev/null || stat -c %Y "$CACHE" 2>/dev/null || echo 0)
+# stat -c is GNU (Linux, Git Bash), stat -f is BSD/macOS. GNU must go first: GNU
+# reads `-f %m` as "filesystem info for the files '%m' and $CACHE", prints a block
+# of text and exits non-zero, so the fallback's output gets appended to it.
+mt=$(stat -c %Y "$CACHE" 2>/dev/null || stat -f %m "$CACHE" 2>/dev/null || echo 0)
 if [ -s "$CACHE" ] && [ $((now - mt)) -lt 5 ]; then
   IFS=$'\t' read -r BRANCH DIRTY BADGE SYNC APPROV < "$CACHE"
 else
